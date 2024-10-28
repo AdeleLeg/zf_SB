@@ -10,62 +10,70 @@ library(lme4)
 library(car)
 library(betareg)
 library(emmeans)
-
-#Upload the data
 library("readxl")
+library(dplyr)
+library(tidyr)
+
+#Read out the data
 data = read_excel(file.choose())
 
-#Visualise the structure of the data
+#Create fish.ID column
+data <- data %>%
+  unite("fish.ID", Trial:Well, sep = " ", remove = FALSE)
+
+#Create time column
+data$Time <- rep(seq(1,469),length.out=112560)
+
+#See the structure of the data
 str(data)
 
-#Create "time" and "fish ID" columns
-#The number on the left (x) in seq(x,y) is the interval on the repetition you want in your time columns, in our case we want every second, so it'll be 1.
-#The number on the right (y), is the duration of the experiments expressed in the measure unit (238 seconds in this case).
-#Length.out = number of the rows of your data file, aka the number of observations in global environment (top right corner, 83062 in this case).
-data$time <- rep(seq(1,238),length.out=83062)
-data$fish.ID <- paste(data$trial, data$well, sep=" ")
-
-#Change the structure of the data columns
+#Change the structure of the data
 data$fish.ID= as.factor(data$fish.ID)
-data$genotype = as.factor(data$genotype)
-data$mean.dist = as.numeric(data$mean.dist)
+data$Genotype = as.factor(data$Genotype)
+data$Mean = as.numeric(data$Mean)
+data$Time = as.numeric(data$Time)
+data$Total = as.numeric(data$Total)
 
 
-#Subset the dataset to the number of fish per condition you want to analyse (here we are analysing the bursts of every single fish). Below an example for 5 fish x condition (e.g, WT, HET and HOM)
+#Subset the dataset according to how many animals you want to analyse. Swimming burst take into account the burst of every single fish x condition. Below I am analysing 5 fish x condition (e.g, WT and HOM)
 
-HET <- subset(data, fish.ID == "Trial     3 Arena 1" | fish.ID == "Trial     3 Arena 2" | fish.ID == "Trial     3 Arena 3" | 
-         fish.ID == "Trial     3 Arena 4" | fish.ID == "Trial     3 Arena 5")
+HOM <- subset(data, fish.ID == "Trial     2 D1" | fish.ID == "Trial     2 D2" | fish.ID == "Trial     2 D6" | 
+         fish.ID == "Trial     2 D4" | fish.ID == "Trial     2 D5")
 
-HOM <- subset(data, fish.ID == "Trial     5 Arena 1" | fish.ID == "Trial     5 Arena 6" | fish.ID == "Trial     5 Arena 3" | 
-                fish.ID == "Trial     5 Arena 4" | fish.ID == "Trial     5 Arena 5")
+WT <- subset(data, fish.ID == "Trial     2 A1" | fish.ID == "Trial     2 A2" | fish.ID == "Trial     2 A3" | 
+                fish.ID == "Trial     2 A4" | fish.ID == "Trial     2 A5")
 
-WT <- subset(data, fish.ID == "Trial     1 Arena 12" | fish.ID == "Trial     1 Arena 7" | fish.ID == "Trial     1 Arena 3" | 
-                fish.ID == "Trial     1 Arena 4" | fish.ID == "Trial     1 Arena 11")
-
-#Merge the 3 genotypes
-all <- rbind (HET, HOM, WT)
+#Merge the genotypes
+all <- rbind (HOM, WT)
 
 
-#Take only the first 90sec (as per Lange et al., 2012)
-ninetysec <- subset (all, time > 90 & time < 181)
+#Subset the first 90sec (as per Lange et al., 2012)
+ninetysec <- subset (all, Time > 40 & Time < 131)
 
 
-#Take dist travelled every 3sec
-all2 <- ninetysec [seq(3,nrow(ninetysec), 3), ]
-
+#Take distance travelled every 3seconds
+all.2 <- data3 %>%
+  mutate(Time.3s = floor(Time / 3)) %>%
+  group_by(Trial, Well, Concentration, Genotype, Time.3s) %>%
+  summarize(
+    Mean = sum(Mean),
+    SD = sum(SD),
+    Total = sum(Total),
+    Mean.Velocity = mean(Mean.Velocity),
+  )
 
 #Plot all2
 
-Genotypes <- list('WT'= "WT",'HET'= "HET",'HOM'= "HOM")
+Genotypes <- list('WT'= "WT",'HOM'= "HOM")
 genotypes_labeller <- function(variable,value){return(Genotypes[value])}
-all2$Genotype_f = factor(all2$genotype, levels=c('WT','HET','HOM'))
+all2$Genotype_f = factor(all2$genotype, levels=c('WT','HOM'))
 
 
 ggplot (all2, #name of the dataset
-        aes(x=time,
-            y=mean.dist*100,
-            group=genotype, 
-            colour=genotype)) + 
+        aes(x=Time,
+            y=Mean*100,
+            group=Genotype, 
+            colour=Genotype)) + 
   stat_summary(fun="mean", geom="line", size = 1.0) + 
   stat_summary(fun.data = "mean_cl_normal", 
                fun.args = list(mult = 1)) + 
@@ -84,18 +92,16 @@ ggplot (all2, #name of the dataset
   facet_grid( ~ Genotype_f, labeller = genotypes_labeller)+
   facet_wrap(~ fish.ID)
 
-# Calculate N of peaks Peaks were defined as all acceleration events when the fish traveled > 5mm in < 12 s.
-
-#Create the function "find_peaks" to find the peaks as defined above
-#To call the function: find_peaks(v,t) 
+#Calculate the number of peaks peaks - defined as all acceleration events when the fish travelled > 5mm in < 12 s.
+#First, create the function find_peaks to find the peaks as defined above
 
 find_peaks <- function(v,t){
   p <- embed(sign(diff(v)),2)
-  #find the indexes of both the max and min
+  # find the indexes of both the max and min
   idx <- which(rowSums(p) == 0) + 1
-  #find only the local max (high peaks)
+  # find only the local max (high peaks)
   loc_max_i <- which(diff( sign(diff(v)) ) == -2 )+1
-  #find only the local min (low peaks)
+  # find only the local min (low peaks)
   loc_min_i <- which(diff( sign(diff(v)) ) == +2 )+1
   peaks <- c()
   for (i in seq(1,length(loc_max_i))) {
@@ -108,122 +114,73 @@ find_peaks <- function(v,t){
 }
 
 
-#Test the function:
+#Calculate peaks for WT
 
-HOM1 <- subset (all2,fish.ID == "Trial     5 Arena 1")
+WT1 <- subset (all2,fish.ID == "Trial     2 A1")
+WT2 <- subset (all2,fish.ID == "Trial     2 A2")
+WT3 <- subset (all2,fish.ID == "Trial     2 A3")
+WT4 <- subset (all2,fish.ID == "Trial     2 A4")
+WT5 <- subset (all2,fish.ID == "Trial     2 A5")
 
-v <- HOM1$mean.dist*100
-t <- HOM1$time
-peaks <- find_peaks(v,t)
-#peaks contains the indexes where the peaks are. To see the number of peaks, do length(peaks)
-#Knowing the indexes, you can access any data of interest (for example the mean distance) where the peaks appear
-#So you can calculate the average of this data at the peaks: 
-#As v is the vector with the mean dist, the following line calculate the average
-mean(v[peaks])
-#To plot the profile plus the peaks as points:
-#this plots the profile as a solid line (NB: doing -t[1] you normalize the time frmo 0)
-plot(t-t[1],v,type = "l")
-#doing points, it overlaps the graph over the line plot before, so you plot the points where the peaks are
-points(t[peaks]-t[1],v[peaks],col="red")
-
-
-# Calculate peaks for WT
-
-WT1 <- subset (all2,fish.ID == "Trial     1 Arena 11")
-WT2 <- subset (all2,fish.ID == "Trial     1 Arena 12")
-WT3 <- subset (all2,fish.ID == "Trial     1 Arena 3")
-WT4 <- subset (all2,fish.ID == "Trial     1 Arena 4")
-WT5 <- subset (all2,fish.ID == "Trial     1 Arena 7")
-
-v <- WT1$mean.dist*100
-t <- WT1$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT2$mean.dist*100
-t <- WT2$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT3$mean.dist*100
-t <- WT3$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT4$mean.dist*100
-t <- WT4$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT5$mean.dist*100
-t <- WT5$time
-peaks <- find_peaks(v,t)
-peaks
-
-# Calculate peaks for HET
-
-HET1 <- subset (all2,fish.ID == "Trial     3 Arena 1")
-HET2 <- subset (all2,fish.ID == "Trial     3 Arena 2")
-HET3 <- subset (all2,fish.ID == "Trial     3 Arena 3")
-HET4 <- subset (all2,fish.ID == "Trial     3 Arena 4")
-HET5 <- subset (all2,fish.ID == "Trial     3 Arena 5")
-
-v <- HET1$mean.dist*100
-t <- HET1$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HET2$mean.dist*100
-t <- HET2$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HET3$mean.dist*100
-t <- HET3$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HET4$mean.dist*100
-t <- HET4$time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HET5$mean.dist*100
-t <- HET5$time
+v <- WT1$Mean
+t <- WT1$Time
 peaks <- find_peaks(v,t)
 peaks
 
 
-# Calculate peaks for HOM
-
-HOM1 <- subset (all2,fish.ID == "Trial     5 Arena 1")
-HOM2 <- subset (all2,fish.ID == "Trial     5 Arena 3")
-HOM3 <- subset (all2,fish.ID == "Trial     5 Arena 4")
-HOM4 <- subset (all2,fish.ID == "Trial     5 Arena 5")
-HOM5 <- subset (all2,fish.ID == "Trial     5 Arena 6")
-
-
-v <- HOM1$mean.dist*100
-t <- HOM1$time
+v <- WT2$Mean
+t <- WT2$Time
 peaks <- find_peaks(v,t)
 peaks
 
-v <- HOM2$mean.dist*100
-t <- HOM2$time
+v <- WT3$Mean
+t <- WT3$Time
 peaks <- find_peaks(v,t)
 peaks
 
-v <- HOM3$mean.dist*100
-t <- HOM3$time
+v <- WT4$Mean
+t <- WT4$Time
 peaks <- find_peaks(v,t)
 peaks
 
-v <- HOM4$mean.dist*100
-t <- HOM4$time
+v <- WT5$Mean
+t <- WT5$Time
 peaks <- find_peaks(v,t)
 peaks
 
-v <- HOM5$mean.dist*100
-t <- HOM5$time
+
+#Calculate peaks for HOM
+
+HOM1 <- subset (all2,fish.ID == "Trial     2 D1")
+HOM2 <- subset (all2,fish.ID == "Trial     2 D2")
+HOM3 <- subset (all2,fish.ID == "Trial     2 D4")
+HOM4 <- subset (all2,fish.ID == "Trial     2 D5")
+HOM5 <- subset (all2,fish.ID == "Trial     2 D6")
+
+
+v <- HOM1$Mean
+t <- HOM1$Time
 peaks <- find_peaks(v,t)
 peaks
+
+v <- HOM2$Mean
+t <- HOM2$Time
+peaks <- find_peaks(v,t)
+peaks
+
+v <- HOM3$Mean
+t <- HOM3$Time
+peaks <- find_peaks(v,t)
+peaks
+
+v <- HOM4$Mean
+t <- HOM4$Time
+peaks <- find_peaks(v,t)
+peaks
+
+v <- HOM5$Mean
+t <- HOM5$Time
+peaks <- find_peaks(v,t)
+peaks
+
+
