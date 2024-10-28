@@ -22,6 +22,9 @@ data <- data %>%
   unite("fish.ID", Trial:Well, sep = " ", remove = FALSE)
 
 #Create time column
+# The number on the left (x) in seq(x,y) is the interval on the repetition you want in your time columns, in our case we want every second, so it'll be 1.
+# The number on the right (y), is the duration of the experiments expressed in the measure unit (469 seconds in this case).
+# Length.out = number of the rows of your data file, aka the number of observations in global environment (top right corner, 112560 in this case).
 data$Time <- rep(seq(1,469),length.out=112560)
 
 #See the structure of the data
@@ -52,25 +55,24 @@ ninetysec <- subset (all, Time > 40 & Time < 131)
 
 
 #Take distance travelled every 3seconds
-all.2 <- data3 %>%
+
+three.second <- ninetysec %>%
   mutate(Time.3s = floor(Time / 3)) %>%
-  group_by(Trial, Well, Concentration, Genotype, Time.3s) %>%
+  group_by(fish.ID, Concentration, Genotype, Time.3s) %>%
   summarize(
     Mean = sum(Mean),
     SD = sum(SD),
     Total = sum(Total),
-    Mean.Velocity = mean(Mean.Velocity),
-  )
+    Mean.Velocity = mean(Velocity))
 
-#Plot all2
 
-Genotypes <- list('WT'= "WT",'HOM'= "HOM")
+#Plot Genotypes <- list('WT'= "WT",'HOM'= "HOM")
 genotypes_labeller <- function(variable,value){return(Genotypes[value])}
-all2$Genotype_f = factor(all2$genotype, levels=c('WT','HOM'))
+three.second$Genotype_f = factor(three.second$Genotype, levels=c('WT','HOM'))
 
 
-ggplot (all2, #name of the dataset
-        aes(x=Time,
+ggplot (three.second, #name of the dataset
+        aes(x=Time.3s,
             y=Mean*100,
             group=Genotype, 
             colour=Genotype)) + 
@@ -92,8 +94,12 @@ ggplot (all2, #name of the dataset
   facet_grid( ~ Genotype_f, labeller = genotypes_labeller)+
   facet_wrap(~ fish.ID)
 
-#Calculate the number of peaks peaks - defined as all acceleration events when the fish travelled > 5mm in < 12 s.
-#First, create the function find_peaks to find the peaks as defined above
+#calculate N of peaks Peaks were defined as all acceleration events when the fish
+#traveled > 5mm in < 12 s.
+
+# Now create the function find_peaks to find the peaks as defined above
+
+# to call the function: find_peaks(v,t) 
 
 find_peaks <- function(v,t){
   p <- embed(sign(diff(v)),2)
@@ -105,7 +111,7 @@ find_peaks <- function(v,t){
   loc_min_i <- which(diff( sign(diff(v)) ) == +2 )+1
   peaks <- c()
   for (i in seq(1,length(loc_max_i))) {
-    if(v[loc_max_i[i]] > 5 & (t[loc_max_i[i]] - t[loc_min_i[i]] < 12 ) )
+    if(v[loc_max_i[i]] > 5 & (t[loc_max_i[i]] - t[loc_min_i[i]] < 4 ) )
     {
       peaks[length(peaks)+1] = loc_max_i[i]
     }
@@ -113,74 +119,13 @@ find_peaks <- function(v,t){
   return(peaks)
 }
 
+#Example of peaks calculation for 1xHOM larva
+HOM1 <- subset (three.second,fish.ID == "Trial     2 D1")
 
-#Calculate peaks for WT
+##First of all check that the Mean distance travelled (Mean below) column is the right measurment unit. That is why I multiply *1000 the Mean below
 
-WT1 <- subset (all2,fish.ID == "Trial     2 A1")
-WT2 <- subset (all2,fish.ID == "Trial     2 A2")
-WT3 <- subset (all2,fish.ID == "Trial     2 A3")
-WT4 <- subset (all2,fish.ID == "Trial     2 A4")
-WT5 <- subset (all2,fish.ID == "Trial     2 A5")
-
-v <- WT1$Mean
-t <- WT1$Time
+v <- HOM1$Mean*1000
+t <- HOM1$Time.3s
 peaks <- find_peaks(v,t)
-peaks
-
-
-v <- WT2$Mean
-t <- WT2$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT3$Mean
-t <- WT3$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT4$Mean
-t <- WT4$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- WT5$Mean
-t <- WT5$Time
-peaks <- find_peaks(v,t)
-peaks
-
-
-#Calculate peaks for HOM
-
-HOM1 <- subset (all2,fish.ID == "Trial     2 D1")
-HOM2 <- subset (all2,fish.ID == "Trial     2 D2")
-HOM3 <- subset (all2,fish.ID == "Trial     2 D4")
-HOM4 <- subset (all2,fish.ID == "Trial     2 D5")
-HOM5 <- subset (all2,fish.ID == "Trial     2 D6")
-
-
-v <- HOM1$Mean
-t <- HOM1$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HOM2$Mean
-t <- HOM2$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HOM3$Mean
-t <- HOM3$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HOM4$Mean
-t <- HOM4$Time
-peaks <- find_peaks(v,t)
-peaks
-
-v <- HOM5$Mean
-t <- HOM5$Time
-peaks <- find_peaks(v,t)
-peaks
-
-
+# peaks contains the indexes where the peaks are. To see the number of peaks, do length(peaks)
+length(peaks)
